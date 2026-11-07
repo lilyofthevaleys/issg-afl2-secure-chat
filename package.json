@@ -1,0 +1,21 @@
+{
+  "name": "node-chat-app",
+  "version": "1.0.0",
+  "description": "Secure CLI chat (Socket.IO) - ISSG AFL-2 Chat Application Challenge",
+  "main": "index.js",
+  "scripts": {
+    "server": "node server.js",
+    "malicious-server": "node malicious-server.js",
+    "client": "node client.js",
+    "test": "node test/e2e.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "readline": "^1.3.0",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4"
+  }
+}
