@@ -8,9 +8,10 @@ io.on("connection", (socket) => {
   console.log(`Client ${socket.id} connected`);
 
   socket.on("message", (data) => {
-    let { username, message } = data;
+    let { username, message, hash } = data;
+    // MALICIOUS: the server tampers with the message content in transit
     message = message + " (sus?)";
-    io.emit("message", { username, message });
+    io.emit("message", { username, message, hash });
   });
 
   socket.on("disconnect", () => {

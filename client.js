@@ -1,5 +1,6 @@
 const io = require("socket.io-client");
 const readline = require("readline");
+const crypto = require("crypto");
 
 const socket = io("http://localhost:3000");
 
@@ -11,6 +12,11 @@ const rl = readline.createInterface({
 
 let username = "";
 
+// Assignment #1: integrity check with a hash (SHA-256)
+function hashMessage(message) {
+  return crypto.createHash("sha256").update(message).digest("hex");
+}
+
 socket.on("connect", () => {
   console.log("Connected to the server");
 
@@ -21,7 +27,8 @@ socket.on("connect", () => {
 
     rl.on("line", (message) => {
       if (message.trim()) {
-        socket.emit("message", { username, message });
+        // the sender attaches the hash digest of the message
+        socket.emit("message", { username, message, hash: hashMessage(message) });
       }
       rl.prompt();
     });
@@ -29,9 +36,13 @@ socket.on("connect", () => {
 });
 
 socket.on("message", (data) => {
-  const { username: senderUsername, message: senderMessage } = data;
+  const { username: senderUsername, message: senderMessage, hash } = data;
   if (senderUsername !== username) {
     console.log(`${senderUsername}: ${senderMessage}`);
+    // the recipient recomputes the hash and compares it with the sender's hash
+    if (hash !== hashMessage(senderMessage)) {
+      console.log("  ⚠️  WARNING: this message may have been changed during transmission (hash mismatch)");
+    }
     rl.prompt();
   }
 });
