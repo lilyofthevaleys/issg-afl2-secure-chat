@@ -12,7 +12,12 @@ const rl = readline.createInterface({
 
 let registeredUsername = "";
 let username = "";
+let targetUsername = "";
 const users = new Map();
+
+// RSA-2048 with OAEP/SHA-256 can encrypt at most 256 - 2*32 - 2 = 190 bytes
+const RSA_OAEP = { padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" };
+const MAX_SECRET_BYTES = 190;
 
 // Assignment #2: every client owns an RSA key pair.
 // The private key never leaves this process; the public key is registered with the server.
@@ -42,6 +47,30 @@ function verifySignature(senderUsername, message, signatureHex) {
   }
 }
 
+// Assignment #3: encrypt for the target with THEIR public key, decrypt with OUR private key
+function encryptFor(target, message) {
+  return crypto.publicEncrypt({ key: users.get(target), ...RSA_OAEP }, Buffer.from(message)).toString("hex");
+}
+
+function tryDecrypt(message) {
+  // an RSA-2048 ciphertext is exactly 256 bytes = 512 hex characters
+  if (!/^[0-9a-f]{512}$/.test(message)) return null;
+  try {
+    return crypto.privateDecrypt({ key: privateKey, ...RSA_OAEP }, Buffer.from(message, "hex")).toString("utf8");
+  } catch {
+    return null; // not encrypted for us
+  }
+}
+
+function sendMessage(message) {
+  socket.emit("message", {
+    username,
+    message,
+    hash: hashMessage(message),
+    signature: signMessage(message),
+  });
+}
+
 // trust on first use: never let a known username be re-bound to a different key
 function rememberKey(user, key) {
   const known = users.get(user);
@@ -66,19 +95,32 @@ socket.on("connect", () => {
 
     rl.on("line", (message) => {
       if (message.trim()) {
-        if ((match = message.match(/^!impersonate (\w+)$/))) {
+        let match;
+        if ((match = message.match(/^!secret (\w+)$/))) {
+          if (!users.has(match[1])) {
+            console.log(`Unknown user ${match[1]}: no public key registered`);
+          } else {
+            targetUsername = match[1];
+            console.log(`Now secretly chatting with ${targetUsername}`);
+          }
+        } else if ((match = message.match(/^!impersonate (\w+)$/))) {
+          // kept from the tutorial so the impersonation attack can still be demoed
           username = match[1];
           console.log(`Now impersonating as ${username}`);
         } else if (message.match(/^!exit$/)) {
+          if (targetUsername) console.log(`No more secretly chatting with ${targetUsername}`);
+          targetUsername = "";
           username = registeredUsername;
           console.log(`Now you are ${username}`);
+        } else if (targetUsername) {
+          if (Buffer.byteLength(message) > MAX_SECRET_BYTES) {
+            console.log(`Secret messages are limited to ${MAX_SECRET_BYTES} bytes with RSA-2048`);
+          } else {
+            // ciphertext is what gets hashed and signed, so #1 and #2 still protect it
+            sendMessage(encryptFor(targetUsername, message));
+          }
         } else {
-          socket.emit("message", {
-            username,
-            message,
-            hash: hashMessage(message),
-            signature: signMessage(message),
-          });
+          sendMessage(message);
         }
       }
       rl.prompt();
@@ -105,7 +147,12 @@ socket.on("newUser", (data) => {
 socket.on("message", (data) => {
   const { username: senderUsername, message: senderMessage, hash, signature } = data;
   if (senderUsername !== username) {
-    console.log(`${senderUsername}: ${senderMessage}`);
+    const plaintext = tryDecrypt(senderMessage);
+    if (plaintext !== null) {
+      console.log(`${senderUsername} (secret): ${plaintext}`);
+    } else {
+      console.log(`${senderUsername}: ${senderMessage}`);
+    }
     if (hash !== hashMessage(senderMessage)) {
       // content no longer matches the sender's hash -> altered in transit
       console.log("  ⚠️  WARNING: this message may have been changed during transmission (hash mismatch)");
